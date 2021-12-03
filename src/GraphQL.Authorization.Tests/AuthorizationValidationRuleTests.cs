@@ -106,6 +106,19 @@ namespace GraphQL.Authorization.Tests
         }
 
         [Fact]
+        public void issue5()
+        {
+            Settings.AddPolicy("PostPolicy", builder => builder.RequireClaim("admin"));
+
+            ShouldPassRule(_ =>
+            {
+                _.OperationName = "c";
+                _.Query = @"query p { posts } query c { comment }";
+                _.Schema = NestedSchema();
+            });
+        }
+
+        [Fact]
         public void nested_type_list_non_null_policy_fail()
         {
             Settings.AddPolicy("PostPolicy", builder => builder.RequireClaim("admin"));
@@ -233,6 +246,7 @@ namespace GraphQL.Authorization.Tests
                     post(id: ID!): Post
                     posts: [Post]
                     postsNonNull: [Post!]!
+                    comment(id: ID!): String
                 }
 
                 type Post {
@@ -256,6 +270,9 @@ namespace GraphQL.Authorization.Tests
             public IEnumerable<Post> Posts() => null;
 
             public IEnumerable<Post> PostsNonNull() => null;
+
+            [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "test")]
+            public string Comment(string id) => null;
         }
 
         [GraphQLAuthorize("PostPolicy")]

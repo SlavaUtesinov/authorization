@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Threading.Tasks;
 using GraphQL.Language.AST;
 using GraphQL.Types;
@@ -22,6 +23,41 @@ namespace GraphQL.Authorization
             _evaluator = evaluator;
         }
 
+        private bool ShouldBeSkipped(INode originalNode, ValidationContext context)
+        {
+            if (context.Document.Operations.Count <= 1)
+            {
+                return false;
+            }
+
+            var actualOperation = context.Document.Operations.FirstOrDefault(x => x.Name == context.OperationName);
+
+            if (actualOperation == null)
+            {
+                return false;
+            }
+
+            var nodeBelongsToOperation = false;
+            void Visit(INode node, int _)
+            {
+                if (nodeBelongsToOperation)
+                {
+                    return;
+                }
+
+                nodeBelongsToOperation = node == originalNode;
+
+                if (node != null)
+                {
+                    node.Visit(Visit, 0);
+                }
+            }
+
+            actualOperation.Visit(Visit, 0);
+
+            return !nodeBelongsToOperation;
+        }
+
         /// <inheritdoc />
         public Task<INodeVisitor> ValidateAsync(ValidationContext context)
         {
@@ -37,6 +73,11 @@ namespace GraphQL.Authorization
             return Task.FromResult((INodeVisitor)new NodeVisitors(
                 new MatchingNodeVisitor<Operation>((astType, context) =>
                 {
+                    if (context.Document.Operations.Count > 1 && astType.Name != context.OperationName)
+                    {
+                        return;
+                    }
+
                     operationType = astType.OperationType;
 
                     var type = context.TypeInfo.GetLastType();
@@ -45,7 +86,7 @@ namespace GraphQL.Authorization
 
                 new MatchingNodeVisitor<ObjectField>((objectFieldAst, context) =>
                 {
-                    if (context.TypeInfo.GetArgument()?.ResolvedType.GetNamedType() is IComplexGraphType argumentType)
+                    if (context.TypeInfo.GetArgument()?.ResolvedType.GetNamedType() is IComplexGraphType argumentType && !ShouldBeSkipped(objectFieldAst, context))
                     {
                         var fieldType = argumentType.GetField(objectFieldAst.Name);
                         CheckAuth(objectFieldAst, fieldType, userContext, context, operationType);
@@ -56,7 +97,7 @@ namespace GraphQL.Authorization
                 {
                     var fieldDef = context.TypeInfo.GetFieldDef();
 
-                    if (fieldDef == null)
+                    if (fieldDef == null || ShouldBeSkipped(fieldAst, context))
                         return;
 
                     // check target field
